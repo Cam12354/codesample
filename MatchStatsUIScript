@@ -1,0 +1,182 @@
+
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+local UI = require(script.Parent:WaitForChild("UITheme"))
+
+local MatchStats = {}
+MatchStats.__index = MatchStats
+
+local HEAVY = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Heavy)
+local WHITE = Color3.new(1, 1, 1)
+local GOLD = Color3.fromRGB(255, 200, 40)
+local DIM = Color3.fromRGB(200, 204, 214)
+local ROW_WHITE = Color3.fromRGB(244, 245, 247)
+local ROW_ME = Color3.fromRGB(214, 228, 252)
+local ROW_INK = Color3.fromRGB(26, 28, 34)
+local SCORE_DARK = Color3.fromRGB(46, 49, 56)
+local FRAME = Color3.fromRGB(70, 74, 84)
+local TEAM_EDGES = { Color3.fromRGB(30, 104, 240), Color3.fromRGB(222, 52, 64) }
+local W, ROW_H, HEAD_H, GAP, EDGE_W, NUM_W = 400, 36, 26, 3, 6, 64
+local COLUMNS = { { key = "winners", title = "WINNERS" }, { key = "errors", title = "ERRORS" }, { key = "saves", title = "SAVES" } }
+local MAX_ROWS = 4
+local HOME_X, SLIDE = 14, 24 -- left margin; px the panel travels as it appears
+
+local function label(parent, props)
+	local base = { BackgroundTransparency = 1, FontFace = HEAVY, TextSize = 14, TextColor3 = WHITE }
+	for k, v in props do
+		base[k] = v
+	end
+	return UI.new("TextLabel", base, parent)
+end
+
+
+
+function MatchStats.new(gui: ScreenGui, courtStates: Instance, courtOf: () -> number, myUserId: number)
+	local self = setmetatable({ courtStates = courtStates, courtOf = courtOf, myUserId = myUserId, shown = false, token = 0, homeX = HOME_X }, MatchStats)
+
+
+	local root = UI.new("CanvasGroup", { Name = "MatchStats", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, HOME_X, 0.5, 0), Size = UDim2.fromOffset(W, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = FRAME, BorderSizePixel = 0, GroupTransparency = 1, Visible = false }, gui)
+	UI.new("UICorner", { CornerRadius = UDim.new(0, 5) }, root)
+	UI.new("UIPadding", { PaddingLeft = UDim.new(0, GAP), PaddingRight = UDim.new(0, GAP), PaddingTop = UDim.new(0, GAP), PaddingBottom = UDim.new(0, GAP) }, root)
+	UI.new("UIListLayout", { Padding = UDim.new(0, GAP), SortOrder = Enum.SortOrder.LayoutOrder }, root)
+	self.root = root
+
+	-- Header: title and the column names over the number boxes.
+	local head = UI.new("Frame", { LayoutOrder = 0, Size = UDim2.new(1, 0, 0, HEAD_H), BackgroundColor3 = SCORE_DARK, BorderSizePixel = 0 }, root)
+	UI.new("UICorner", { CornerRadius = UDim.new(0, 3) }, head)
+	label(head, { Position = UDim2.fromOffset(EDGE_W + 12, 0), Size = UDim2.new(0.4, 0, 1, 0), TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Left, Text = "MATCH STATS" })
+	for i, c in COLUMNS do
+		label(head, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -(#COLUMNS - i) * (NUM_W + GAP), 0, 0), Size = UDim2.new(0, NUM_W, 1, 0), TextSize = 12, TextColor3 = DIM, Text = c.title })
+	end
+
+	
+	self.rows = {}
+	for i = 1, MAX_ROWS do
+		local row = UI.new("Frame", { LayoutOrder = i, Size = UDim2.new(1, 0, 0, ROW_H), BackgroundColor3 = ROW_WHITE, BorderSizePixel = 0, Visible = false }, root)
+		UI.new("UICorner", { CornerRadius = UDim.new(0, 3) }, row)
+		local edge = UI.new("Frame", { Size = UDim2.new(0, EDGE_W, 1, 0), BorderSizePixel = 0 }, row)
+		local name = label(row, { Position = UDim2.fromOffset(EDGE_W + 12, 0), Size = UDim2.new(1, -(EDGE_W + 12 + #COLUMNS * (NUM_W + GAP)), 1, 0), TextSize = 18, TextColor3 = ROW_INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+		local cells = {}
+		for k in COLUMNS do
+			local box = UI.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -(#COLUMNS - k) * (NUM_W + GAP), 0, 0), Size = UDim2.new(0, NUM_W, 1, 0), BackgroundColor3 = SCORE_DARK, BorderSizePixel = 0 }, row)
+			UI.new("UICorner", { CornerRadius = UDim.new(0, 3) }, box)
+			cells[k] = label(box, { Size = UDim2.fromScale(1, 1), TextSize = 22, Text = "0" })
+		end
+		self.rows[i] = { frame = row, edge = edge, name = name, cells = cells }
+	end
+
+
+	local foot = UI.new("Frame", { LayoutOrder = MAX_ROWS + 1, Size = UDim2.new(1, 0, 0, HEAD_H), BackgroundColor3 = SCORE_DARK, BorderSizePixel = 0 }, root)
+	UI.new("UICorner", { CornerRadius = UDim.new(0, 3) }, foot)
+	self.longest = label(foot, { Position = UDim2.fromOffset(EDGE_W + 12, 0), Size = UDim2.new(0.5, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	self.current = label(foot, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(0.4, 0, 1, 0), TextSize = 13, TextColor3 = DIM, TextXAlignment = Enum.TextXAlignment.Right })
+	return self
+end
+
+
+function MatchStats:_json(): string?
+	local court = self.courtOf()
+	local state = court > 0 and self.courtStates:FindFirstChild("Court" .. court)
+	if not state or state:GetAttribute("Training") then
+		return nil
+	end
+	local json = state:GetAttribute("StatsJson")
+	return type(json) == "string" and json ~= "" and json or nil
+end
+
+function MatchStats:_render(json: string)
+	self.json = json
+	local ok, data = pcall(HttpService.JSONDecode, HttpService, json)
+	if not ok or type(data) ~= "table" then
+		return
+	end
+	-- Team 1's rows first, then team 2's.
+	local players = {}
+	for t = 1, 2 do
+		for _, p in data.players or {} do
+			if p.team == t then
+				table.insert(players, p)
+			end
+		end
+	end
+	for i, r in self.rows do
+		local p = players[i]
+		r.frame.Visible = p ~= nil
+		if p then
+			r.edge.BackgroundColor3 = TEAM_EDGES[p.team]
+			r.frame.BackgroundColor3 = p.id == self.myUserId and ROW_ME or ROW_WHITE
+			r.name.Text = tostring(p.name)
+			for k, c in COLUMNS do
+				r.cells[k].Text = tostring(p[c.key] or 0)
+			end
+		end
+	end
+	local rally = data.currentRally or 0
+	self.longest.Text = "LONGEST RALLY  " .. tostring(data.longestRally or 0)
+	self.current.Text = rally > 0 and "THIS RALLY  " .. rally or ""
+end
+
+function MatchStats:_show(on: boolean)
+	if on == self.shown then
+		return
+	end
+	self.shown = on
+	self.token += 1
+	local token = self.token
+	local root = self.root
+	if self.conn then
+		self.conn:Disconnect()
+		self.conn = nil
+	end
+	if on then
+		root.Visible = true
+		root.Position = UDim2.new(0, self.homeX - SLIDE, 0.5, 0)
+		UI.enter(root, { GroupTransparency = 0, Position = UDim2.new(0, self.homeX, 0.5, 0) })
+		-- Live while held: picks up each hit and rally end, and closes if the
+		-- match ends or the spectator steps off the pad.
+		self.conn = RunService.Heartbeat:Connect(function()
+			local json = self:_json()
+			if not json then
+				self:_show(false)
+			elseif json ~= self.json then
+				self:_render(json)
+			end
+		end)
+	else
+		local tween = UI.exit(root, { GroupTransparency = 1, Position = UDim2.new(0, self.homeX - SLIDE, 0.5, 0) })
+		tween.Completed:Once(function()
+			if token == self.token then
+				root.Visible = false
+			end
+		end)
+	end
+end
+
+-- Extra left margin (GUI units), e.g. past a notch on touch screens.
+function MatchStats:setInset(left: number)
+	self.homeX = HOME_X + left
+	if not self.shown then
+		self.root.Position = UDim2.new(0, self.homeX, 0.5, 0)
+	end
+end
+
+-- The STATS key went down (true) or up (false).
+function MatchStats:setHeld(held: boolean)
+	local json = held and self:_json()
+	if json then
+		self:_render(json)
+		self:_show(true)
+	else
+		self:_show(false)
+	end
+end
+
+function MatchStats:destroy()
+	if self.conn then
+		self.conn:Disconnect()
+	end
+	self.root:Destroy()
+end
+
+return MatchStats
